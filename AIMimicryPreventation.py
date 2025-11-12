@@ -13,6 +13,7 @@ from IPython.display import display
 import functools
 import numpy as np
 import os
+import imagehash
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -28,7 +29,13 @@ os.makedirs(output_dir, exist_ok=True)
 # Define file paths inside those folders
 content_path = os.path.join(content_dir, "CatContent.jpg")
 style_path = os.path.join(style_dir, "StarryNightStyle.jpg")
+content_name = os.path.basename(content_path)
+content_name = os.path.splitext(content_name)
+content_name = content_name[0]
 
+style_name = os.path.basename(style_path)
+style_name = os.path.splitext(style_name)
+style_name = style_name[0]
 
 
 def load_file(image_path):
@@ -221,6 +228,35 @@ def run_style_transfer(content_path, style_path, epochs=50, content_weight=1e3, 
 
 
 best, best_loss,image = run_style_transfer(content_path, style_path, epochs=50)
-output_path = os.path.join(output_dir, "CatStarryNights.png")
+output_filename = f"{content_name}_x_{style_name}.png"
+output_path = os.path.join(output_dir, output_filename)
 Image.fromarray(best).save(output_path)
+
+#Compute perceptual hashes
+original_pil = Image.open(content_path).convert("RGB")
+stylized_pil = Image.fromarray(best).convert("RGB")
+
+hash_funcs = {
+    "aHash": imagehash.average_hash,
+    "pHash": imagehash.phash,
+    "dHash": imagehash.dhash,
+    "wHash": imagehash.whash,
+}
+
+results_lines = []
+print("\n=== Perceptual Hash Distances (Hamming) ===")
+for name, func in hash_funcs.items():
+    h1 = func(original_pil)
+    h2 = func(stylized_pil)
+    dist = h1 - h2
+    norm = dist / len(h1.hash.ravel())
+    line = f"{name}: {h1} vs {h2} | distance={dist} (normalized={norm:.3f})"
+    print(line)
+    results_lines.append(line)
+
+# write a small report next to the image
+report_path = os.path.join(output_dir, f"{content_name}_vs_{style_name}_hash_report.txt")
+with open(report_path, "w", encoding="utf-8") as f:
+    f.write("\n".join(results_lines))
+print(f"Saved hash report to: {report_path}")
 
