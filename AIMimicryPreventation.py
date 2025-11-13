@@ -232,7 +232,7 @@ output_filename = f"{content_name}_x_{style_name}.png"
 output_path = os.path.join(output_dir, output_filename)
 Image.fromarray(best).save(output_path)
 
-#Compute perceptual hashes
+# Compute perceptual hashes
 original_pil = Image.open(content_path).convert("RGB")
 stylized_pil = Image.fromarray(best).convert("RGB")
 
@@ -244,7 +244,7 @@ hash_funcs = {
 }
 
 results_lines = []
-print("\n=== Perceptual Hash Distances (Hamming) ===")
+print("\nPerceptual Hash Distances (Hamming)")
 for name, func in hash_funcs.items():
     h1 = func(original_pil)
     h2 = func(stylized_pil)
@@ -259,4 +259,5 @@ report_path = os.path.join(output_dir, f"{content_name}_vs_{style_name}_hash_rep
 with open(report_path, "w", encoding="utf-8") as f:
     f.write("\n".join(results_lines))
 print(f"Saved hash report to: {report_path}")
+
 
