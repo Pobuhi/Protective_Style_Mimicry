@@ -14,6 +14,11 @@ import functools
 import numpy as np
 import os
 import imagehash
+import lpips
+import torch
+from torchvision import transforms
+
+lpips_model = lpips.LPIPS(net='vgg')
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -62,8 +67,8 @@ def show_im(img, title=None):
 
 
 def img_preprocess(img_path):
-    image=load_file(img_path)
-    img=tf.keras.applications.vgg19.preprocess_input(image)
+    image = load_file(img_path)
+    img = tf.keras.applications.vgg19.preprocess_input(image)
     return img
 
 
@@ -71,14 +76,13 @@ def deprocess_img(processed_img):
     x = processed_img.copy()
     if len(x.shape) == 4:
         x = np.squeeze(x, 0)
-    assert len(x.shape) == 3  # Input dimension must be [1, height, width, channel] or [height, width, channel]
+    assert len(x.shape) == 3
 
-    # perform the inverse of the preprocessing step
+    x = x.astype('float32')
     x[:, :, 0] += 103.939
     x[:, :, 1] += 116.779
     x[:, :, 2] += 123.68
-    x = x[:, :, ::-1]  # converting BGR to RGB channel
-
+    x = x[:, :, ::-1]  # BGR to RGB
     x = np.clip(x, 0, 255).astype('uint8')
     return x
 
@@ -89,8 +93,8 @@ style_layers = ['block1_conv1',
                 'block3_conv1',
                 'block4_conv1',
                 'block5_conv1']
-number_content=len(content_layers)
-number_style =len(style_layers)
+number_content = len(content_layers)
+number_style = len(style_layers)
 
 
 def get_model():
@@ -102,22 +106,23 @@ def get_model():
     return models.Model(vgg.input, model_output)
 
 
-def get_content_loss(noise,target):
-    loss = tf.reduce_mean(tf.square(noise-target))
+def get_content_loss(noise, target):
+    loss = tf.reduce_mean(tf.square(noise - target))
     return loss
 
+
 def gram_matrix(tensor):
-    channels=int(tensor.shape[-1])
-    vector=tf.reshape(tensor,[-1,channels])
-    n=tf.shape(vector)[0]
-    gram_matrix=tf.matmul(vector,vector,transpose_a=True)
-    return gram_matrix/tf.cast(n,tf.float32)
+    channels = int(tensor.shape[-1])
+    vector = tf.reshape(tensor, [-1, channels])
+    n = tf.shape(vector)[0]
+    gram_matrix = tf.matmul(vector, vector, transpose_a=True)
+    return gram_matrix / tf.cast(n, tf.float32)
 
 
-def get_style_loss(noise,target):
-    gram_noise=gram_matrix(noise)
-    #gram_target=gram_matrix(target)
-    loss=tf.reduce_mean(tf.square(target-gram_noise))
+def get_style_loss(noise, target):
+    gram_noise = gram_matrix(noise)
+    # gram_target=gram_matrix(target)
+    loss = tf.reduce_mean(tf.square(target - gram_noise))
     return loss
 
 
@@ -144,11 +149,11 @@ def compute_loss(model, loss_weights, image, gram_style_features, content_featur
     noise_style_features = output[:number_style]
     noise_content_feature = output[number_style:]
 
-    #Style Loss
+    # Style Loss
     weight_per_layer = 1.0 / float(number_style)
     for a, b in zip(gram_style_features, noise_style_features):
         style_loss += weight_per_layer * get_style_loss(b[0], a)
-    #Content Loss
+    # Content Loss
     weight_per_layer = 1.0 / float(number_content)
     for a, b in zip(noise_content_feature, content_features):
         content_loss += weight_per_layer * get_content_loss(a[0], b)
@@ -167,6 +172,19 @@ def compute_grads(dictionary):
 
     total_loss = all_loss[0]
     return tape.gradient(total_loss, dictionary['image']), all_loss
+
+
+def get_lpips_loss(img1_np, img2_np):
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Resize((img1_np.shape[1], img1_np.shape[2])),
+        transforms.Normalize(mean=[0.5]*3, std=[0.5]*3)
+    ])
+    img1 = transform(Image.fromarray(deprocess_img(img1_np))).unsqueeze(0)
+    img2 = transform(Image.fromarray(deprocess_img(img2_np))).unsqueeze(0)
+    with torch.no_grad():
+        loss = lpips_model(img1, img2)
+    return loss.item()
 
 
 def run_style_transfer(content_path, style_path, epochs=50, content_weight=1e3, style_weight=1e-2):
@@ -208,7 +226,7 @@ def run_style_transfer(content_path, style_path, epochs=50, content_weight=1e3, 
             best_loss = total_loss
             best_img = deprocess_img(noise.numpy())
 
-        # for visualization
+            # for visualization
 
             if i % 5 == 0:
                 plot_img = deprocess_img(noise.numpy())
@@ -227,7 +245,7 @@ def run_style_transfer(content_path, style_path, epochs=50, content_weight=1e3, 
     return best_img, best_loss, imgs
 
 
-best, best_loss,image = run_style_transfer(content_path, style_path, epochs=50)
+best, best_loss, image = run_style_transfer(content_path, style_path, epochs=50)
 output_filename = f"{content_name}_x_{style_name}.png"
 output_path = os.path.join(output_dir, output_filename)
 Image.fromarray(best).save(output_path)
@@ -244,7 +262,7 @@ hash_funcs = {
 }
 
 results_lines = []
-print("\nPerceptual Hash Distances (Hamming)")
+print("Perceptual Hash Distances (Hamming)")
 for name, func in hash_funcs.items():
     h1 = func(original_pil)
     h2 = func(stylized_pil)
@@ -254,10 +272,15 @@ for name, func in hash_funcs.items():
     print(line)
     results_lines.append(line)
 
+content_np = img_preprocess(content_path)
+stylized_np = np.expand_dims(best, axis=0)
+lpips_val = get_lpips_loss(content_np, stylized_np)
+lpips_line = f"LPIPS loss (content vs stylized): {lpips_val:.4f}"
+print(lpips_line)
+results_lines.append(lpips_line)
+
 # write a small report next to the image
 report_path = os.path.join(output_dir, f"{content_name}_vs_{style_name}_hash_report.txt")
 with open(report_path, "w", encoding="utf-8") as f:
     f.write("\n".join(results_lines))
 print(f"Saved hash report to: {report_path}")
-
-
