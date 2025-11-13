@@ -181,7 +181,7 @@ def run_style_transfer(content_path, style_path, epochs=50, content_weight=1e3, 
             display(Image.fromarray(plot_img))
             print(f"Epoch: {i}")
             print(
-                f"Total: {float(total_loss.numpy()):.4e}, Style Loss: {float(style_loss.numpy()):.4e}, Content: Loss {float(content_loss.numpy()):.4e}")
+                f"Total: {float(total_loss.numpy()):.4e}, Style Loss: {float(style_loss.numpy()):.4e}, Content Loss: {float(content_loss.numpy()):.4e}")
 
     return best_img, best_loss, imgs
 
@@ -316,3 +316,4 @@ report_path = os.path.join(output_dir, f"{content_name}_vs_{style_name}_perceptu
 with open(report_path, "w", encoding="utf-8") as f:
     f.write("\n".join(results_lines))
 print(f"Saved perceptual report (hashes + LPIPS + hinge): {report_path}")
+
