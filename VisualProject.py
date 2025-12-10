@@ -84,14 +84,14 @@ def compute_dct_frequency_map(image_pil: Image.Image, block_size=16) -> np.ndarr
 def pgd_glaze_dct_adaptive(
         content_pil: Image.Image,
         target_style_pil: Image.Image,
-        steps=185,
+        steps=150,
         step_size=6/ 255,
-        linf_budget_base=20/255,
-        lpips_budget=0.16,
-        style_shift_strength=10.0,
-        frequency_weight=0.20,
+        linf_budget_base=18/255,
+        lpips_budget=0.14,
+        style_shift_strength=9.0,
+        frequency_weight=0.80,
         dct_block_size=16,
-        target_style_shift_percent: float = 40.0,
+        target_style_shift_percent: float = 37.0,
         progress_callback=None
 ):
     energy_map = compute_dct_frequency_map(content_pil, block_size=dct_block_size)
@@ -262,10 +262,12 @@ class GlazeProtectionUI:
 
         markers = [
             ("5%\nMinimal", 0),
-            ("15%\nWeak", 0.125),
-            ("30%\nModerate", 0.312),
-            ("50%\nStrong", 0.562),
-            ("70%\nVery Strong", 0.812),
+            ("17%\nWeak", 0.15),
+            ("26%\nModerate", 0.2625),
+            ("38%\nMod-Strong", 0.4125),
+            ("46%\nStrong", 0.5125),
+            ("59%\nVery Strong", 0.675),
+            ("68%\nExtreme", 0.7875),
             ("85%\nMaximum", 1.0)
         ]
 
@@ -500,8 +502,7 @@ class GlazeProtectionUI:
             bd=2
         )
 
-        # Update initial values
-        self.on_slider_change(40)
+        self.on_slider_change(38)
 
     def toggle_advanced(self):
         if self.show_advanced.get():
@@ -555,97 +556,150 @@ class GlazeProtectionUI:
                 pady=2
             ).pack(anchor='w')
 
-    def calculate_params(self, target_shift):
-        if target_shift <= 15:
-            return {
-                'steps': 100,
-                'stepSize': 5,
-                'linfBudget': 12,
-                'lpipsBudget': 0.08,
-                'styleStrength': 6.0,
-                'frequencyWeight': 0.30,
-                'dctBlockSize': 16
-            }
-        elif target_shift <= 30:
-            t = (target_shift - 15) / 15
-            return {
-                'steps': int(100 + t * 200),
-                'stepSize': int(5 + t * 5),
-                'linfBudget': int(12 + t * 28),
-                'lpipsBudget': 0.08 + t * 0.17,
-                'styleStrength': 6.0 + t * 14.0,
-                'frequencyWeight': 0.40,
-                'dctBlockSize': 16
-            }
-        elif target_shift <= 50:
-            t = (target_shift - 30) / 20
-            return {
-                'steps': int(100 + t * 200),
-                'stepSize': int(10 + t * 5),
-                'linfBudget': int(40 + t * 30),
-                'lpipsBudget': 0.25 + t * 0.15,
-                'styleStrength': 20.0 + t * 20.0,
-                'frequencyWeight': 0.35,
-                'dctBlockSize': 16
-            }
-        elif target_shift <= 70:
-            t = (target_shift - 50) / 20
-            return {
-                'steps': int(500 + t * 100),
-                'stepSize': int(15 + t * 3),
-                'linfBudget': int(70 + t * 30),
-                'lpipsBudget': 0.40 + t * 0.20,
-                'styleStrength': 40.0 + t * 40.0,
-                'frequencyWeight': 0.40,
-                'dctBlockSize': 16
-            }
-        else:
-            t = (target_shift - 70) / 15
-            return {
-                'steps': int(600 + t * 200),
-                'stepSize': int(18 + t * 7),
-                'linfBudget': int(100 + t * 50),
-                'lpipsBudget': 0.60 + t * 0.40,
-                'styleStrength': 80.0 + t * 40.0,
-                'frequencyWeight': 0.40,
-                'dctBlockSize': 16
-            }
-
     def get_protection_level(self, shift):
-        if shift < 15:
+        if shift < 17.5:
             return ("MINIMAL", "#f1f5f9", "#64748b")
-        elif shift < 30:
-            return ("MODERATE", "#dbeafe", "#2563eb")
-        elif shift < 50:
-            return ("STRONG", "#dcfce7", "#16a34a")
-        elif shift < 70:
-            return ("VERY STRONG", "#fed7aa", "#ea580c")
+        elif shift < 21.0:
+            return ("WEAK", "#dbeafe", "#2563eb")
+        elif shift < 26.1:
+            return ("MODERATE", "#dcfce7", "#16a34a")
+        elif shift < 37.8:
+            return ("MODERATE-STRONG", "#fef3c7", "#ca8a04")
+        elif shift < 45.7:
+            return ("STRONG", "#fed7aa", "#ea580c")
+        elif shift < 58.6:
+            return ("VERY STRONG", "#fecaca", "#dc2626")
+        elif shift < 67.8:
+            return ("EXTREME", "#fce7f3", "#9333ea")
         else:
-            return ("MAXIMUM", "#fecaca", "#dc2626")
+            return ("MAXIMUM", "#7c2d12", "#ffffff")
+
 
     def get_expected_lpips(self, shift):
-        if shift <= 15:
-            return 0.05 + (shift / 15) * 0.05
-        elif shift <= 30:
-            return 0.10 + ((shift - 15) / 15) * 0.15
-        elif shift <= 50:
-            return 0.25 + ((shift - 30) / 20) * 0.15
-        elif shift <= 70:
-            return 0.40 + ((shift - 50) / 20) * 0.20
+        if shift <= 17.5:
+            return 0.05 + (shift - 5) / 12.5 * 0.030
+        elif shift <= 21.0:
+            return 0.080 + (shift - 17.5) / 3.5 * 0.023
+        elif shift <= 26.1:
+            return 0.103 + (shift - 21.0) / 5.1 * 0.047
+        elif shift <= 37.8:
+            return 0.150 + (shift - 26.1) / 11.7 * 0.110
+        elif shift <= 45.7:
+            return 0.260 + (shift - 37.8) / 7.9 * 0.079
+        elif shift <= 58.6:
+            return 0.339 + (shift - 45.7) / 12.9 * 0.120
+        elif shift <= 67.8:
+            return 0.459 + (shift - 58.6) / 9.2 * 0.083
         else:
-            return 0.60 + ((shift - 70) / 15) * 0.20
+            return 0.542 + (shift - 67.8) / 12.4 * 0.106
 
     def get_visual_impact(self, shift):
-        if shift < 15:
+        if shift < 17.5:
             return "Nearly\nimperceptible"
-        elif shift < 30:
+        elif shift < 21.0:
+            return "Imperceptible\nto most"
+        elif shift < 26.1:
+            return "Subtle\nmodifications"
+        elif shift < 37.8:
             return "Noticeable on\nclose inspection"
-        elif shift < 50:
-            return "Clearly visible\nmodifications"
-        elif shift < 70:
-            return "Obvious changes\nquality loss"
+        elif shift < 45.7:
+            return "Clearly visible\nchanges"
+        elif shift < 58.6:
+            return "Obvious\nmodifications"
+        elif shift < 67.8:
+            return "Heavy artifacts\nquality loss"
         else:
             return "Severe degradation\nuse with caution"
+
+    def calculate_params(self, target_shift):
+        if target_shift <= 17.5:
+            t = (target_shift - 5) / 12.5
+            return {
+                'steps': int(80 + t * 20),
+                'stepSize': int(4 + t * 1),
+                'linfBudget': int(8 + t * 4),
+                'lpipsBudget': 0.06 + t * 0.02,
+                'styleStrength': 4.0 + t * 2.0,
+                'frequencyWeight': 0.60 + t * 0.05,
+                'dctBlockSize': 16
+            }
+        elif target_shift <= 21.0:
+            t = (target_shift - 17.5) / 3.5
+            return {
+                'steps': int(100 + t * 20),
+                'stepSize': int(5 + t * 1),
+                'linfBudget': int(12 + t * 3),
+                'lpipsBudget': 0.08 + t * 0.02,
+                'styleStrength': 6.0 + t * 1.5,
+                'frequencyWeight': 0.65 + t * 0.05,
+                'dctBlockSize': 16
+            }
+        elif target_shift <= 26.1:
+            t = (target_shift - 21.0) / 5.1
+            return {
+                'steps': int(120 + t * 30),
+                'stepSize': int(6 + t * 1),
+                'linfBudget': int(15 + t * 3),
+                'lpipsBudget': 0.10 + t * 0.03,
+                'styleStrength': 7.5 + t * 1.5,
+                'frequencyWeight': 0.70 + t * 0.05,
+                'dctBlockSize': 16
+            }
+        elif target_shift <= 37.8:
+            t = (target_shift - 26.1) / 11.7
+            return {
+                'steps': int(150 + t * 35),
+                'stepSize': int(7 + t * 1),
+                'linfBudget': int(18 + t * 4),
+                'lpipsBudget': 0.13 + t * 0.04,
+                'styleStrength': 9.0 + t * 2.0,
+                'frequencyWeight': 0.75 + t * 0.05,
+                'dctBlockSize': 16
+            }
+        elif target_shift <= 45.7:
+            t = (target_shift - 37.8) / 7.9
+            return {
+                'steps': int(185 + t * 20),
+                'stepSize': int(8 + t * 1),
+                'linfBudget': int(22 + t * 3),
+                'lpipsBudget': 0.17 + t * 0.03,
+                'styleStrength': 11.0 + t * 2.0,
+                'frequencyWeight': 0.80 + t * 0.05,
+                'dctBlockSize': 16
+            }
+        elif target_shift <= 58.6:
+            t = (target_shift - 45.7) / 12.9
+            return {
+                'steps': int(205 + t * 30),
+                'stepSize': int(9 + t * 1),
+                'linfBudget': int(25 + t * 5),
+                'lpipsBudget': 0.20 + t * 0.04,
+                'styleStrength': 13.0 + t * 2.0,
+                'frequencyWeight': 0.85 + t * 0.05,
+                'dctBlockSize': 16
+            }
+        elif target_shift <= 67.8:
+            t = (target_shift - 58.6) / 9.2
+            return {
+                'steps': int(235 + t * 25),
+                'stepSize': int(10 + t * 1),
+                'linfBudget': int(30 + t * 5),
+                'lpipsBudget': 0.24 + t * 0.04,
+                'styleStrength': 15.0 + t * 2.0,
+                'frequencyWeight': 0.90 + t * 0.05,
+                'dctBlockSize': 16
+            }
+        else:
+            t = (target_shift - 67.8) / 12.4
+            return {
+                'steps': int(260 + t * 40),
+                'stepSize': int(11 + t * 2),
+                'linfBudget': int(35 + t * 10),
+                'lpipsBudget': 0.28 + t * 0.06,
+                'styleStrength': 17.0 + t * 3.0,
+                'frequencyWeight': 0.95 + t * 0.05,
+                'dctBlockSize': 16
+            }
 
     def on_slider_change(self, value):
         shift = int(float(value))
