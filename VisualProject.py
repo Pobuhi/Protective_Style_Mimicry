@@ -1031,10 +1031,44 @@ class GlazeProtectionUI:
             )
 
             max_runs = int((hours * 3600) / time_per_run)
-            runs_used = 0
-
             if max_runs <= 0:
                 self.root.after(0, lambda: messagebox.showerror("Error", "Not enough time for any model run."))
+                return
+
+            runs_used = 0
+
+            baseline_result = self.run_glaze_iteration(
+                content_img=content_img,
+                style_img=style_img,
+                params=base_params,
+                target_shift=target_shift
+            )
+            global_best_result = baseline_result
+            global_best_ratio = baseline_result["ratio"]
+            global_best_img = baseline_result["protected_img"]
+
+            runs_used = 1
+            self.update_fine_tune_progress(runs_used, max_runs)
+
+            if runs_used >= max_runs:
+                output_path = os.path.join(output_dir, "best_protected_artwork.png")
+                global_best_img.resize(self.content_image.size, Image.LANCZOS).save(output_path)
+                self.protected_image = global_best_img
+                self.is_fine_tuning = False
+
+                style_shift = global_best_result["style_shift"]
+                lpips_orig = global_best_result["lpips_orig"]
+                lpips_target = global_best_result["lpips_target"]
+                pixel_diff_mean = global_best_result["pixel_diff_mean"]
+                quadrants = global_best_result["quadrants"]
+                proc_time = global_best_result["processing_time"]
+
+                self.root.after(
+                    50,
+                    lambda ss=style_shift, lo=lpips_orig, lt=lpips_target,
+                           pd=pixel_diff_mean, q=quadrants, pt=proc_time, op=output_path:
+                    self.show_results(ss, lo, lt, pd, q, pt, op)
+                )
                 return
 
             tuning_plan = [
