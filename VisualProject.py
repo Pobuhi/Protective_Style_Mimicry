@@ -12,16 +12,19 @@ from tkinter import ttk, filedialog, messagebox
 from threading import Thread
 import time
 import pywt
+from threading import Thread, Event
 
 home_dir = os.path.expanduser("~")
 desktop_dir = os.path.join(home_dir, "Desktop")
 if not os.path.isdir(desktop_dir):
     desktop_dir = home_dir
+# Main app folder on Desktop
 base_dir = os.path.join(desktop_dir, "ProtectionStudio")
 os.makedirs(base_dir, exist_ok=True)
 output_dir = os.path.join(base_dir, "output")
 os.makedirs(output_dir, exist_ok=True)
 
+# LPIPS setup
 LPIPS_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 lpips_model = lpips.LPIPS(net='vgg').to(LPIPS_DEVICE).eval()
 _to_tensor_01 = transforms.ToTensor()
@@ -68,7 +71,7 @@ def lpips_distance(a_pil: Image.Image, b_pil: Image.Image) -> float:
 def compute_dwt_frequency_map(image_pil: Image.Image, wavelet='haar'):
 
     img_array = np.array(image_pil.convert("RGB")).astype(np.float32)
-    h, w = image_pil.size
+    w, h = image_pil.size
 
     energy = np.zeros((h, w), dtype=np.float32)
 
@@ -125,18 +128,18 @@ def pgd_glaze_dct_adaptive(
         content_pil: Image.Image,
         target_style_pil: Image.Image,
         steps=150,
-        step_size=6 / 255,
-        linf_budget_base=18 / 255,
+        step_size=6/ 255,
+        linf_budget_base=18/255,
         lpips_budget=0.14,
         style_shift_strength=9.0,
         frequency_weight=0.80,
         dct_block_size=16,
         target_style_shift_percent: float = 37.0,
         progress_callback=None,
-        compression_method = "DCT"
+        compression_method = "DCT",
+        cancel_event=None
         ):
-    
-    # content_np = np.array(content_pil.convert("RGB")).astype(np.float32)
+
     if compression_method == "DCT":
         energy_map = compute_dct_frequency_map(content_pil, block_size=dct_block_size)
         
@@ -166,11 +169,18 @@ def pgd_glaze_dct_adaptive(
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=steps, eta_min=step_size * 0.1)
 
     for i in range(steps):
+
+        if cancel_event is not None and cancel_event.is_set():
+            return None, None, None
+
         optim.zero_grad()
         x_adv = (x0 + delta).clamp(-1, 1)
 
         dist_from_orig = lpips_model(x_adv, x0).mean()
         dist_to_target = lpips_model(x_adv, x_target).mean()
+
+        if cancel_event is not None and cancel_event.is_set():
+            return None, None, None
 
         target_frac = target_style_shift_percent / 100.0
         style_shift_frac = (baseline_target_dist - dist_to_target) / (baseline_target_dist + 1e-8)
@@ -179,6 +189,10 @@ def pgd_glaze_dct_adaptive(
         loss = style_shift_strength * shift_loss + 5.0 * imperceptibility_penalty
 
         loss.backward()
+
+        if cancel_event is not None and cancel_event.is_set():
+            return None, None, None
+
         optim.step()
         scheduler.step()
 
@@ -223,9 +237,12 @@ class GlazeProtectionUI:
         self.protected_image = None
         self.is_processing = False
 
+        self.cancel_event = Event()
+
         self.setup_ui()
 
     def setup_ui(self):
+        # Title
         title_frame = tk.Frame(self.root, bg='#f8fafc')
         title_frame.pack(pady=20)
 
@@ -240,16 +257,18 @@ class GlazeProtectionUI:
 
         subtitle_label = tk.Label(
             title_frame,
-            text="Protect your artwork from AI style mimicry with adaptive DCT frequency-based cloaking",
+            text="Protect your artwork from AI style mimicry with adaptive DCT or DWT frequency-based cloaking",
             font=("Arial", 10),
             bg='#f8fafc',
             fg='#64748b'
         )
         subtitle_label.pack()
 
+        # Main container
         main_frame = tk.Frame(self.root, bg='#f8fafc')
         main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
+        # Protection Strength Panel
         strength_frame = tk.LabelFrame(
             main_frame,
             text="Protection Strength Control",
@@ -321,6 +340,7 @@ class GlazeProtectionUI:
         self.slider.set(40)
         self.slider.pack(pady=10)
 
+        # Slider markers
         markers_frame = tk.Frame(slider_container, bg='white')
         markers_frame.pack(fill=tk.X)
 
@@ -345,9 +365,11 @@ class GlazeProtectionUI:
             )
             marker_label.place(relx=pos, anchor='n')
 
+        # Expected Results
         results_frame = tk.Frame(strength_frame, bg='white')
         results_frame.pack(fill=tk.X, padx=20, pady=10)
 
+        # LPIPS Box
         self.lpips_frame = tk.Frame(results_frame, bg='#dbeafe', relief=tk.RAISED, bd=2)
         self.lpips_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
 
@@ -376,6 +398,7 @@ class GlazeProtectionUI:
             fg='#1e40af'
         ).pack(pady=5)
 
+        # Visual Impact Box
         self.visual_frame = tk.Frame(results_frame, bg='#dcfce7', relief=tk.RAISED, bd=2)
         self.visual_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
 
@@ -397,6 +420,7 @@ class GlazeProtectionUI:
         )
         self.visual_impact_label.pack(pady=10)
 
+        # Processing Steps Box
         self.steps_frame = tk.Frame(results_frame, bg='#f3e8ff', relief=tk.RAISED, bd=2)
         self.steps_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
 
@@ -425,6 +449,7 @@ class GlazeProtectionUI:
             fg='#7c3aed'
         ).pack(pady=5)
 
+        # Advanced Parameters (collapsible)
         self.show_advanced = tk.BooleanVar(value=False)
         advanced_toggle = tk.Checkbutton(
             strength_frame,
@@ -441,9 +466,11 @@ class GlazeProtectionUI:
 
         self.advanced_frame = tk.Frame(strength_frame, bg='#f8fafc')
 
+        # Image Upload Section
         upload_frame = tk.Frame(main_frame, bg='#f8fafc')
         upload_frame.pack(fill=tk.BOTH, expand=True, pady=10)
 
+        # Content Image
         content_frame = tk.LabelFrame(
             upload_frame,
             text="Your Artwork",
@@ -478,9 +505,10 @@ class GlazeProtectionUI:
         )
         self.content_label.pack()
 
+        # Style Image
         style_frame = tk.LabelFrame(
             upload_frame,
-            text="Target Style (Optional)",
+            text="Target Style",
             font=("Arial", 11, "bold"),
             bg='white',
             relief=tk.RAISED,
@@ -512,6 +540,7 @@ class GlazeProtectionUI:
         )
         self.style_label.pack()
 
+        # Process Button
         process_frame = tk.Frame(main_frame, bg='#f8fafc')
         process_frame.pack(fill=tk.X, pady=10)
 
@@ -532,7 +561,7 @@ class GlazeProtectionUI:
 
         self.process_button = tk.Button(
             process_frame,
-            text="🛡️Apply DCT Protection",
+            text="🛡️ Apply Protection",
             command=self.process_protection,
             font=("Arial", 12, "bold"),
             bg='#6366f1',
@@ -544,8 +573,9 @@ class GlazeProtectionUI:
             cursor='hand2',
             state=tk.DISABLED
         )
-        self.process_button.pack(fill=tk.X)
+        self.process_button.pack(side=tk.LEFT,fill=tk.X, padx=5)
 
+        # Progress Bar
         self.progress_var = tk.DoubleVar()
         self.progress_bar = ttk.Progressbar(
             process_frame,
@@ -561,6 +591,24 @@ class GlazeProtectionUI:
             fg='#64748b'
         )
 
+        # Cancel Button
+        self.cancel_button = tk.Button(
+            process_frame,
+            text="❌ Cancel",
+            command=self.cancel_processing,
+            font=("Arial", 11, "bold"),
+            bg='#ef4444',
+            fg='white',
+            padx=20,
+            pady=10,
+            state=tk.DISABLED
+        )
+        self.cancel_button.pack(side=tk.RIGHT, padx=5)
+
+        button_frame = tk.Frame(process_frame, bg="#f8fafc")
+        button_frame.pack(fill=tk.X, pady=5)
+
+        # Results Display
         self.results_text = tk.Text(
             main_frame,
             height=8,
@@ -678,6 +726,12 @@ class GlazeProtectionUI:
         )
         self.root.update_idletasks()
 
+    def cancel_processing(self):
+        if self.is_processing:
+            self.cancel_event.set()
+            self.cancel_button.config(state=tk.DISABLED)
+            self.progress_label.config(text="Cancelling...")
+
     def toggle_advanced(self):
         if self.show_advanced.get():
             self.advanced_frame.pack(fill=tk.X, padx=20, pady=10)
@@ -747,6 +801,7 @@ class GlazeProtectionUI:
             return ("EXTREME", "#fce7f3", "#9333ea")
         else:
             return ("MAXIMUM", "#7c2d12", "#ffffff")
+
 
     def get_expected_lpips(self, shift):
         if shift <= 17.5:
@@ -947,6 +1002,8 @@ class GlazeProtectionUI:
     def run_fine_tuning_pipeline(self):
         self.is_fine_tuning = True
         self.is_processing = True
+        self.cancel_event.clear()
+        self.cancel_button.config(state=tk.NORMAL)
         self.process_button.config(state=tk.DISABLED, bg='#9ca3af')
 
         self.progress_bar.pack(fill=tk.X, pady=10)
@@ -979,6 +1036,8 @@ class GlazeProtectionUI:
             return
 
         self.is_processing = True
+        self.cancel_event.clear()
+        self.cancel_button.config(state=tk.NORMAL)
         self.process_button.config(state=tk.DISABLED, bg='#9ca3af')
         self.progress_bar.pack(fill=tk.X, pady=10)
         self.progress_label.pack()
@@ -988,6 +1047,7 @@ class GlazeProtectionUI:
                 target_shift = self.slider.get()
                 params = self.calculate_params(target_shift)
 
+                # Resize for efficiency
                 content_img = self.content_image.copy()
                 max_dim = 512
                 if max(content_img.size) > max_dim:
@@ -995,11 +1055,13 @@ class GlazeProtectionUI:
                     new_size = (int(content_img.width * ratio), int(content_img.height * ratio))
                     content_img = content_img.resize(new_size, Image.LANCZOS)
 
+                # Use style image or duplicate content
                 if self.style_image:
                     style_img = self.style_image.resize(content_img.size, Image.LANCZOS)
                 else:
                     style_img = content_img.copy()
 
+                # Run protection
                 start_time = time.time()
 
                 protected_img, lpips_orig, lpips_target = pgd_glaze_dct_adaptive(
@@ -1014,14 +1076,27 @@ class GlazeProtectionUI:
                     dct_block_size=params['dctBlockSize'],
                     target_style_shift_percent=target_shift,
                     progress_callback=self.update_progress,
-                    compression_method=self.compression_var.get()
+                    compression_method=self.compression_var.get(),
+                    cancel_event=self.cancel_event
                 )
+
+                if protected_img is None:
+                    self.root.after(0, lambda: messagebox.showinfo(
+                        "Cancelled",
+                        "Image protection was cancelled.\nYou can adjust the settings and try again."
+                    ))
+                    if LPIPS_DEVICE.type == 'cuda':
+                        torch.cuda.synchronize()
+                        torch.cuda.empty_cache()
+                    return
 
                 processing_time = time.time() - start_time
 
+                # Calculate metrics
                 orig_to_target = lpips_distance(content_img, style_img)
                 style_shift = (1 - lpips_target / orig_to_target) * 100
 
+                # Calculate pixel differences
                 orig_arr = np.array(self.content_image).astype(float)
                 prot_arr = np.array(protected_img.resize(self.content_image.size, Image.LANCZOS)).astype(float)
                 pixel_diff = np.abs(orig_arr - prot_arr)
@@ -1048,6 +1123,7 @@ class GlazeProtectionUI:
 
                 self.protected_image = protected_img
 
+                # Display results
                 self.root.after(0, lambda: self.show_results(
                     style_shift, lpips_orig, lpips_target,
                     pixel_diff.mean(), quadrants, processing_time, output_path
@@ -1064,6 +1140,8 @@ class GlazeProtectionUI:
         global_best_result = None
         global_best_ratio = -float("inf")
         global_best_img = None
+
+        cancelled = False
 
         try:
             target_shift = self.slider.get()
@@ -1094,6 +1172,10 @@ class GlazeProtectionUI:
                 params=base_params,
                 target_shift=target_shift
             )
+            if baseline_result is None:
+                cancelled = True
+                return
+            
             global_best_result = baseline_result
             global_best_ratio = baseline_result["ratio"]
             global_best_img = baseline_result["protected_img"]
@@ -1134,6 +1216,11 @@ class GlazeProtectionUI:
 
             def safe_eval(param_name, val):
                 nonlocal runs_used, global_best_result, global_best_ratio, global_best_img
+
+                if self.cancel_event.is_set():
+                    cancelled = True
+                    return None
+
                 if runs_used >= max_runs:
                     return None
 
@@ -1141,6 +1228,9 @@ class GlazeProtectionUI:
                     content_img, style_img, base_params,
                     param_name, val, target_shift
                 )
+
+                if res is None:
+                    return None
 
                 runs_used += 1
                 self.update_fine_tune_progress(runs_used, max_runs)
@@ -1153,6 +1243,11 @@ class GlazeProtectionUI:
                 return res
 
             for param_name, delta_init in tuning_plan:
+
+                if self.cancel_event.is_set():
+                    cancelled = True
+                    break
+
                 if runs_used >= max_runs:
                     break
 
@@ -1183,6 +1278,12 @@ class GlazeProtectionUI:
                 if right_result is None:
                     break
 
+                candidates = [r for r in (center_result, left_result, right_result) if r is not None]
+
+                if not candidates:
+                    cancelled = True
+                    break
+
                 best = max([center_result, left_result, right_result], key=lambda x: x["ratio"])
 
                 if best is left_result:
@@ -1196,6 +1297,11 @@ class GlazeProtectionUI:
                 extra_iters = max(0, remaining_runs // 2)
 
                 for _ in range(extra_iters):
+
+                    if self.cancel_event.is_set():
+                        cancelled = True
+                        break
+
                     if runs_used >= max_runs:
                         break
 
@@ -1256,6 +1362,13 @@ class GlazeProtectionUI:
 
         finally:
             self.tune_hours = 0
+
+            if cancelled:
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "Cancelled",
+                    "Fine-tuning was cancelled.\nNo further optimization runs were started."
+                ))
+
             self.root.after(0, self.reset_ui)
 
     def run_glaze_iteration(self, content_img, style_img, params, target_shift):
@@ -1272,8 +1385,12 @@ class GlazeProtectionUI:
             frequency_weight=params['frequencyWeight'],
             dct_block_size=params['dctBlockSize'],
             target_style_shift_percent=target_shift,
-            progress_callback=self.update_progress
+            progress_callback=self.update_progress,
+            cancel_event=self.cancel_event
         )
+
+        if protected_img is None:
+            return None
 
         processing_time = time.time() - start_time
 
@@ -1355,6 +1472,7 @@ Your artwork is now protected from AI style mimicry!
         self.results_text.insert(1.0, results)
         self.results_text.tag_config("center", justify='center')
 
+        # Download button
         download_btn = tk.Button(
             self.root,
             text="💾 Open Output Folder",
@@ -1381,6 +1499,8 @@ Your artwork is now protected from AI style mimicry!
 
     def reset_ui(self):
         self.is_processing = False
+        self.cancel_event.clear()
+        self.cancel_button.config(state=tk.DISABLED)
         self.process_button.config(state=tk.NORMAL, bg='#6366f1')
         self.progress_bar.pack_forget()
         self.progress_label.pack_forget()
