@@ -17,16 +17,32 @@ home_dir = os.path.expanduser("~")
 desktop_dir = os.path.join(home_dir, "Desktop")
 if not os.path.isdir(desktop_dir):
     desktop_dir = home_dir
-# Main app folder on Desktop
 base_dir = os.path.join(desktop_dir, "ProtectionStudio")
 os.makedirs(base_dir, exist_ok=True)
 output_dir = os.path.join(base_dir, "output")
 os.makedirs(output_dir, exist_ok=True)
 
-# LPIPS setup
 LPIPS_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 lpips_model = lpips.LPIPS(net='vgg').to(LPIPS_DEVICE).eval()
 _to_tensor_01 = transforms.ToTensor()
+
+
+def validate_image_file(filepath: str):
+    """Return a valid PIL image or raise an exception."""
+    if not filepath or not os.path.exists(filepath):
+        raise FileNotFoundError("Selected file does not exist.")
+
+    valid_ext = (".jpg", ".jpeg", ".png", ".bmp")
+    if not filepath.lower().endswith(valid_ext):
+        raise ValueError("Unsupported file type. Please select a valid image file.")
+
+    try:
+        with Image.open(filepath) as img:
+            img.verify()
+    except Exception as e:
+        raise ValueError(f"Selected file is not a valid image: {e}")
+
+    return Image.open(filepath).convert("RGB")
 
 
 def pil_to_lpips_tensor(pil_im: Image.Image) -> torch.Tensor:
@@ -109,8 +125,8 @@ def pgd_glaze_dct_adaptive(
         content_pil: Image.Image,
         target_style_pil: Image.Image,
         steps=150,
-        step_size=6/ 255,
-        linf_budget_base=18/255,
+        step_size=6 / 255,
+        linf_budget_base=18 / 255,
         lpips_budget=0.14,
         style_shift_strength=9.0,
         frequency_weight=0.80,
@@ -199,6 +215,8 @@ class GlazeProtectionUI:
         self.root.title("AI Mimicry Prevention Mechanism")
         self.root.geometry("900x800")
         self.root.configure(bg='#f8fafc')
+        self.tune_hours = 0
+        self.is_fine_tuning = False
 
         self.content_image = None
         self.style_image = None
@@ -208,7 +226,6 @@ class GlazeProtectionUI:
         self.setup_ui()
 
     def setup_ui(self):
-        # Title
         title_frame = tk.Frame(self.root, bg='#f8fafc')
         title_frame.pack(pady=20)
 
@@ -230,11 +247,9 @@ class GlazeProtectionUI:
         )
         subtitle_label.pack()
 
-        # Main container
         main_frame = tk.Frame(self.root, bg='#f8fafc')
         main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
-        # Protection Strength Panel
         strength_frame = tk.LabelFrame(
             main_frame,
             text="Protection Strength Control",
@@ -306,7 +321,6 @@ class GlazeProtectionUI:
         self.slider.set(40)
         self.slider.pack(pady=10)
 
-        # Slider markers
         markers_frame = tk.Frame(slider_container, bg='white')
         markers_frame.pack(fill=tk.X)
 
@@ -331,11 +345,9 @@ class GlazeProtectionUI:
             )
             marker_label.place(relx=pos, anchor='n')
 
-        # Expected Results
         results_frame = tk.Frame(strength_frame, bg='white')
         results_frame.pack(fill=tk.X, padx=20, pady=10)
 
-        # LPIPS Box
         self.lpips_frame = tk.Frame(results_frame, bg='#dbeafe', relief=tk.RAISED, bd=2)
         self.lpips_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
 
@@ -364,7 +376,6 @@ class GlazeProtectionUI:
             fg='#1e40af'
         ).pack(pady=5)
 
-        # Visual Impact Box
         self.visual_frame = tk.Frame(results_frame, bg='#dcfce7', relief=tk.RAISED, bd=2)
         self.visual_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
 
@@ -386,7 +397,6 @@ class GlazeProtectionUI:
         )
         self.visual_impact_label.pack(pady=10)
 
-        # Processing Steps Box
         self.steps_frame = tk.Frame(results_frame, bg='#f3e8ff', relief=tk.RAISED, bd=2)
         self.steps_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
 
@@ -415,7 +425,6 @@ class GlazeProtectionUI:
             fg='#7c3aed'
         ).pack(pady=5)
 
-        # Advanced Parameters (collapsible)
         self.show_advanced = tk.BooleanVar(value=False)
         advanced_toggle = tk.Checkbutton(
             strength_frame,
@@ -432,11 +441,9 @@ class GlazeProtectionUI:
 
         self.advanced_frame = tk.Frame(strength_frame, bg='#f8fafc')
 
-        # Image Upload Section
         upload_frame = tk.Frame(main_frame, bg='#f8fafc')
         upload_frame.pack(fill=tk.BOTH, expand=True, pady=10)
 
-        # Content Image
         content_frame = tk.LabelFrame(
             upload_frame,
             text="Your Artwork",
@@ -471,7 +478,6 @@ class GlazeProtectionUI:
         )
         self.content_label.pack()
 
-        # Style Image
         style_frame = tk.LabelFrame(
             upload_frame,
             text="Target Style (Optional)",
@@ -506,13 +512,27 @@ class GlazeProtectionUI:
         )
         self.style_label.pack()
 
-        # Process Button
         process_frame = tk.Frame(main_frame, bg='#f8fafc')
         process_frame.pack(fill=tk.X, pady=10)
 
+        self.fine_tune_button = tk.Button(
+            process_frame,
+            text="⚙️ Fine Tune Parameters",
+            command=self.open_fine_tune_prompt,
+            font=("Arial", 11, "bold"),
+            bg='#a78bfa',
+            fg='white',
+            relief=tk.RAISED,
+            bd=0,
+            padx=30,
+            pady=12,
+            cursor='hand2'
+        )
+        self.fine_tune_button.pack(fill=tk.X, pady=(0, 10))
+
         self.process_button = tk.Button(
             process_frame,
-            text="🛡️ Apply DCT Protection",
+            text="🛡️Apply DCT Protection",
             command=self.process_protection,
             font=("Arial", 12, "bold"),
             bg='#6366f1',
@@ -526,7 +546,6 @@ class GlazeProtectionUI:
         )
         self.process_button.pack(fill=tk.X)
 
-        # Progress Bar
         self.progress_var = tk.DoubleVar()
         self.progress_bar = ttk.Progressbar(
             process_frame,
@@ -542,7 +561,6 @@ class GlazeProtectionUI:
             fg='#64748b'
         )
 
-        # Results Display
         self.results_text = tk.Text(
             main_frame,
             height=8,
@@ -552,7 +570,113 @@ class GlazeProtectionUI:
             bd=2
         )
 
+        self.ft_progress_var = tk.DoubleVar()
+        self.ft_progress_bar = ttk.Progressbar(
+            process_frame,
+            variable=self.ft_progress_var,
+            maximum=100
+        )
+        self.ft_progress_label = tk.Label(
+            process_frame,
+            text="",
+            font=("Arial", 9),
+            bg='#f8fafc',
+            fg='#64748b'
+        )
+
         self.on_slider_change(38)
+
+    def stop_if_exceeded(self, runs_used, max_runs):
+        return runs_used >= max_runs
+
+    def open_fine_tune_prompt(self):
+        popup = tk.Toplevel(self.root)
+        popup.title("Fine Tune Parameters")
+        width = 300
+        height = 160
+        popup.geometry(str(width) + 'x' + str(height))
+        popup.configure(bg="white")
+        popup.grab_set()
+
+        popup.update_idletasks()
+        screen_w = popup.winfo_screenwidth()
+        screen_h = popup.winfo_screenheight()
+        x = (screen_w // 2) - (width // 2)
+        y = (screen_h // 2) - (height // 2)
+        popup.geometry(f"{width}x{height}+{x}+{y}")
+
+        tk.Label(
+            popup,
+            text="Input Run Time (hours):",
+            font=("Arial", 11, "bold"),
+            bg="white",
+            fg="#1e293b"
+        ).pack(pady=10)
+
+        runtime_var = tk.StringVar()
+        runtime_entry = tk.Entry(
+            popup,
+            textvariable=runtime_var,
+            font=("Arial", 11),
+            width=10,
+            justify="center"
+        )
+        runtime_entry.pack(pady=5)
+
+        btn_frame = tk.Frame(popup, bg="white")
+        btn_frame.pack(pady=10)
+
+        tk.Button(
+            btn_frame,
+            text="Confirm",
+            font=("Arial", 10, "bold"),
+            bg="#4ade80",
+            fg="white",
+            padx=15,
+            pady=5,
+            command=lambda: self.confirm_fine_tune(runtime_var.get(), popup)
+        ).pack(side=tk.LEFT, padx=5)
+
+        tk.Button(
+            btn_frame,
+            text="Cancel",
+            font=("Arial", 10, "bold"),
+            bg="#f87171",
+            fg="white",
+            padx=15,
+            pady=5,
+            command=popup.destroy
+        ).pack(side=tk.LEFT, padx=5)
+
+    def confirm_fine_tune(self, runtime_value, popup):
+        try:
+            hours = float(runtime_value)
+        except ValueError:
+            messagebox.showerror("Invalid Input", "Please enter a valid number.")
+            return
+
+        self.tune_hours = max(hours, 0)
+        popup.destroy()
+
+        if hours == 0:
+            messagebox.showinfo("Fine Tune Disabled", "Fine-tuning set to 0 hours.\nNormal protection will run.")
+        else:
+            messagebox.showinfo("Fine Tuning Enabled",
+                                f"Fine-tuning set to {hours} hours.\nClick Apply to begin optimization.")
+
+    def estimate_time_per_run(self, base_params):
+        time_per_step = 115.4 / 190
+        return base_params['steps'] * time_per_step
+
+    def update_fine_tune_progress(self, runs_used, max_runs):
+        if max_runs <= 0:
+            return
+        progress = (runs_used / max_runs) * 100
+        self.ft_progress_var.set(progress)
+        self.ft_progress_label.config(
+            text=f"Fine-tuning… {runs_used}/{max_runs} model runs ({progress:.1f}%)"
+        )
+        self.root.update_idletasks()
 
     def toggle_advanced(self):
         if self.show_advanced.get():
@@ -623,7 +747,6 @@ class GlazeProtectionUI:
             return ("EXTREME", "#fce7f3", "#9333ea")
         else:
             return ("MAXIMUM", "#7c2d12", "#ffffff")
-
 
     def get_expected_lpips(self, shift):
         if shift <= 17.5:
@@ -776,30 +899,42 @@ class GlazeProtectionUI:
             filetypes=[("Image files", "*.jpg *.jpeg *.png *.bmp")]
         )
 
-        if filename:
-            try:
-                img = Image.open(filename).convert("RGB")
+        if not filename:
+            return
 
-                if image_type == 'content':
-                    self.content_image = img
-                    self.content_label.config(
-                        text=f"✓ {os.path.basename(filename)}\n{img.size[0]}×{img.size[1]}",
-                        fg='#16a34a'
-                    )
-                    self.content_button.config(text="✓ Change Artwork")
-                else:
-                    self.style_image = img
-                    self.style_label.config(
-                        text=f"✓ {os.path.basename(filename)}\n{img.size[0]}×{img.size[1]}",
-                        fg='#9333ea'
-                    )
-                    self.style_button.config(text="✓ Change Style")
+        try:
+            img = validate_image_file(filename)
 
-                if self.content_image:
-                    self.process_button.config(state=tk.NORMAL, bg='#6366f1')
+            if image_type == 'content':
+                self.content_image = img
+                self.content_label.config(
+                    text=f"✓ {os.path.basename(filename)}\n{img.size[0]}×{img.size[1]}",
+                    fg="#16a34a"
+                )
+                self.content_button.config(text="✓ Change Artwork")
 
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to load image: {str(e)}")
+                if self.style_image and self.style_image.size != self.content_image.size:
+                    self.style_image = self.style_image.resize(self.content_image.size, Image.LANCZOS)
+
+            else:
+                if self.content_image and img.size != self.content_image.size:
+                    img = img.resize(self.content_image.size, Image.LANCZOS)
+
+                self.style_image = img
+                self.style_label.config(
+                    text=f"✓ {os.path.basename(filename)}\n{img.size[0]}×{img.size[1]}",
+                    fg="#9333ea"
+                )
+                self.style_button.config(text="✓ Change Style")
+
+            if self.content_image and self.style_image:
+                self.process_button.config(state=tk.NORMAL, bg='#6366f1')
+
+        except Exception as e:
+            messagebox.showerror(
+                "Invalid Image",
+                f"Unable to load image:\n\n{e}"
+            )
 
     def update_progress(self, current, total):
         progress = (current / total) * 100
@@ -809,12 +944,38 @@ class GlazeProtectionUI:
         )
         self.root.update_idletasks()
 
+    def run_fine_tuning_pipeline(self):
+        self.is_fine_tuning = True
+        self.is_processing = True
+        self.process_button.config(state=tk.DISABLED, bg='#9ca3af')
+
+        self.progress_bar.pack(fill=tk.X, pady=10)
+        self.progress_label.pack()
+        self.progress_var.set(0)
+        self.progress_label.config(text="Preparing fine-tuning…")
+
+        self.ft_progress_bar.pack(fill=tk.X, pady=10)
+        self.ft_progress_label.pack()
+        self.ft_progress_var.set(0)
+        self.ft_progress_label.config(text="Fine-tuning starting...")
+
+        target_shift = self.slider.get()
+        base_params = self.calculate_params(target_shift)
+        time_per_run = self.estimate_time_per_run(base_params)
+        hours = self.tune_hours
+
+        Thread(target=lambda: self.fine_tune(hours, time_per_run)).start()
+
     def process_protection(self):
         if not self.content_image:
             messagebox.showwarning("Warning", "Please upload your artwork first!")
             return
 
         if self.is_processing:
+            return
+
+        if self.tune_hours > 0:
+            self.run_fine_tuning_pipeline()
             return
 
         self.is_processing = True
@@ -827,7 +988,6 @@ class GlazeProtectionUI:
                 target_shift = self.slider.get()
                 params = self.calculate_params(target_shift)
 
-                # Resize for efficiency
                 content_img = self.content_image.copy()
                 max_dim = 512
                 if max(content_img.size) > max_dim:
@@ -835,13 +995,11 @@ class GlazeProtectionUI:
                     new_size = (int(content_img.width * ratio), int(content_img.height * ratio))
                     content_img = content_img.resize(new_size, Image.LANCZOS)
 
-                # Use style image or duplicate content
                 if self.style_image:
                     style_img = self.style_image.resize(content_img.size, Image.LANCZOS)
                 else:
                     style_img = content_img.copy()
 
-                # Run protection
                 start_time = time.time()
 
                 protected_img, lpips_orig, lpips_target = pgd_glaze_dct_adaptive(
@@ -861,32 +1019,35 @@ class GlazeProtectionUI:
 
                 processing_time = time.time() - start_time
 
-                # Calculate metrics
                 orig_to_target = lpips_distance(content_img, style_img)
                 style_shift = (1 - lpips_target / orig_to_target) * 100
 
-                # Calculate pixel differences
                 orig_arr = np.array(self.content_image).astype(float)
                 prot_arr = np.array(protected_img.resize(self.content_image.size, Image.LANCZOS)).astype(float)
                 pixel_diff = np.abs(orig_arr - prot_arr)
 
-                # Quadrant analysis
-                h, w = pixel_diff.shape[:2]
-                mid_h, mid_w = h // 2, w // 2
-                quadrants = {
-                    'Top-Left': pixel_diff[:mid_h, :mid_w].mean(),
-                    'Top-Right': pixel_diff[:mid_h, mid_w:].mean(),
-                    'Bottom-Left': pixel_diff[mid_h:, :mid_w].mean(),
-                    'Bottom-Right': pixel_diff[mid_h:, mid_w:].mean()
-                }
+                try:
+                    h, w = pixel_diff.shape[:2]
+                    mid_h, mid_w = h // 2, w // 2
+                    quadrants = {
+                        'Top-Left': pixel_diff[:mid_h, :mid_w].mean(),
+                        'Top-Right': pixel_diff[:mid_h, mid_w:].mean(),
+                        'Bottom-Left': pixel_diff[mid_h:, :mid_w].mean(),
+                        'Bottom-Right': pixel_diff[mid_h:, mid_w:].mean()
+                    }
+                except:
+                    quadrants = {
+                        'Top-Left': 0,
+                        'Top-Right': 0,
+                        'Bottom-Left': 0,
+                        'Bottom-Right': 0
+                    }
 
-                # Save protected image
                 output_path = os.path.join(output_dir, "protected_artwork.png")
                 protected_img.resize(self.content_image.size, Image.LANCZOS).save(output_path)
 
                 self.protected_image = protected_img
 
-                # Display results
                 self.root.after(0, lambda: self.show_results(
                     style_shift, lpips_orig, lpips_target,
                     pixel_diff.mean(), quadrants, processing_time, output_path
@@ -897,8 +1058,271 @@ class GlazeProtectionUI:
             finally:
                 self.root.after(0, self.reset_ui)
 
-        thread = Thread(target=run_protection)
-        thread.start()
+        Thread(target=run_protection).start()
+
+    def fine_tune(self, hours, time_per_run):
+        global_best_result = None
+        global_best_ratio = -float("inf")
+        global_best_img = None
+
+        try:
+            target_shift = self.slider.get()
+            base_params = self.calculate_params(target_shift)
+
+            content_img = self.content_image.copy()
+            max_dim = 512
+            if max(content_img.size) > max_dim:
+                ratio = max_dim / max(content_img.size)
+                new_size = (int(content_img.width * ratio), int(content_img.height * ratio))
+                content_img = content_img.resize(new_size, Image.LANCZOS)
+
+            style_img = (
+                self.style_image.resize(content_img.size, Image.LANCZOS)
+                if self.style_image else content_img.copy()
+            )
+
+            max_runs = int((hours * 3600) / time_per_run)
+            if max_runs <= 0:
+                self.root.after(0, lambda: messagebox.showerror("Error", "Not enough time for any model run."))
+                return
+
+            runs_used = 0
+
+            baseline_result = self.run_glaze_iteration(
+                content_img=content_img,
+                style_img=style_img,
+                params=base_params,
+                target_shift=target_shift
+            )
+            global_best_result = baseline_result
+            global_best_ratio = baseline_result["ratio"]
+            global_best_img = baseline_result["protected_img"]
+
+            runs_used = 1
+            self.update_fine_tune_progress(runs_used, max_runs)
+
+            if runs_used >= max_runs:
+                output_path = os.path.join(output_dir, "best_protected_artwork.png")
+                global_best_img.resize(self.content_image.size, Image.LANCZOS).save(output_path)
+                self.protected_image = global_best_img
+                self.is_fine_tuning = False
+
+                style_shift = global_best_result["style_shift"]
+                lpips_orig = global_best_result["lpips_orig"]
+                lpips_target = global_best_result["lpips_target"]
+                pixel_diff_mean = global_best_result["pixel_diff_mean"]
+                quadrants = global_best_result["quadrants"]
+                proc_time = global_best_result["processing_time"]
+
+                self.root.after(
+                    50,
+                    lambda ss=style_shift, lo=lpips_orig, lt=lpips_target,
+                           pd=pixel_diff_mean, q=quadrants, pt=proc_time, op=output_path:
+                    self.show_results(ss, lo, lt, pd, q, pt, op)
+                )
+                return
+
+            tuning_plan = [
+                ("linfBudget", 0.02),
+                ("lpipsBudget", 0.05),
+                ("styleStrength", 0.05),
+                ("frequencyWeight", 0.5),
+            ]
+
+            num_params = len(tuning_plan)
+            runs_per_param = max(1, max_runs // num_params)
+
+            def safe_eval(param_name, val):
+                nonlocal runs_used, global_best_result, global_best_ratio, global_best_img
+                if runs_used >= max_runs:
+                    return None
+
+                res = self.evaluate_param_setting(
+                    content_img, style_img, base_params,
+                    param_name, val, target_shift
+                )
+
+                runs_used += 1
+                self.update_fine_tune_progress(runs_used, max_runs)
+
+                if global_best_result is None or res["ratio"] > global_best_ratio:
+                    global_best_result = res
+                    global_best_ratio = res["ratio"]
+                    global_best_img = res["protected_img"]
+
+                return res
+
+            for param_name, delta_init in tuning_plan:
+                if runs_used >= max_runs:
+                    break
+
+                center = base_params[param_name]
+                delta = delta_init
+                cache = {}
+
+                def get_result(v):
+                    if v in cache:
+                        return cache[v]
+                    r = safe_eval(param_name, v)
+                    if r is not None:
+                        cache[v] = r
+                    return r
+
+                center_result = get_result(center)
+                if center_result is None:
+                    break
+
+                left_val = center - delta
+                right_val = center + delta
+
+                left_result = get_result(left_val)
+                if left_result is None:
+                    break
+
+                right_result = get_result(right_val)
+                if right_result is None:
+                    break
+
+                best = max([center_result, left_result, right_result], key=lambda x: x["ratio"])
+
+                if best is left_result:
+                    center = left_val
+                elif best is right_result:
+                    center = right_val
+
+                base_params[param_name] = center
+
+                remaining_runs = runs_per_param - 3
+                extra_iters = max(0, remaining_runs // 2)
+
+                for _ in range(extra_iters):
+                    if runs_used >= max_runs:
+                        break
+
+                    left_val = center - delta
+                    right_val = center + delta
+
+                    left_result = get_result(left_val)
+                    if left_result is None:
+                        break
+
+                    right_result = get_result(right_val)
+                    if right_result is None:
+                        break
+
+                    center_result = get_result(center)
+                    if center_result is None:
+                        break
+
+                    best2 = max([center_result, left_result, right_result], key=lambda x: x["ratio"])
+
+                    if best2 is center_result:
+                        delta *= 0.5
+                    elif best2 is left_result:
+                        center = left_val
+                        delta *= 0.5
+                    else:
+                        center = right_val
+                        delta *= 0.5
+
+                    base_params[param_name] = center
+
+                if runs_used >= max_runs:
+                    break
+
+            if global_best_result is not None:
+                output_path = os.path.join(output_dir, "best_protected_artwork.png")
+                global_best_img.resize(self.content_image.size, Image.LANCZOS).save(output_path)
+                self.protected_image = global_best_img
+                self.is_fine_tuning = False
+
+                style_shift = global_best_result["style_shift"]
+                lpips_orig = global_best_result["lpips_orig"]
+                lpips_target = global_best_result["lpips_target"]
+                pixel_diff_mean = global_best_result["pixel_diff_mean"]
+                quadrants = global_best_result["quadrants"]
+                proc_time = global_best_result["processing_time"]
+
+                self.root.after(
+                    50,
+                    lambda ss=style_shift, lo=lpips_orig, lt=lpips_target,
+                           pd=pixel_diff_mean, q=quadrants, pt=proc_time, op=output_path:
+                    self.show_results(ss, lo, lt, pd, q, pt, op)
+                )
+
+        except Exception as e:
+            err = str(e)
+            self.root.after(0, lambda err=err: messagebox.showerror("Error", f"Protection failed: {err}"))
+
+        finally:
+            self.tune_hours = 0
+            self.root.after(0, self.reset_ui)
+
+    def run_glaze_iteration(self, content_img, style_img, params, target_shift):
+        start_time = time.time()
+
+        protected_img, lpips_orig, lpips_target = pgd_glaze_dct_adaptive(
+            content_pil=content_img,
+            target_style_pil=style_img,
+            steps=params['steps'],
+            step_size=params['stepSize'] / 255,
+            linf_budget_base=params['linfBudget'] / 255,
+            lpips_budget=params['lpipsBudget'],
+            style_shift_strength=params['styleStrength'],
+            frequency_weight=params['frequencyWeight'],
+            dct_block_size=params['dctBlockSize'],
+            target_style_shift_percent=target_shift,
+            progress_callback=self.update_progress
+        )
+
+        processing_time = time.time() - start_time
+
+        orig_to_target = lpips_distance(content_img, style_img)
+        style_shift = (1 - lpips_target / orig_to_target) * 100 if orig_to_target != 0 else 0
+
+        orig_arr = np.array(self.content_image).astype(float)
+        prot_arr = np.array(
+            protected_img.resize(self.content_image.size, Image.LANCZOS)
+        ).astype(float)
+        pixel_diff = np.abs(orig_arr - prot_arr)
+
+        h, w = pixel_diff.shape[:2]
+        mid_h, mid_w = h // 2, w // 2
+        quadrants = {
+            'Top-Left': pixel_diff[:mid_h, :mid_w].mean(),
+            'Top-Right': pixel_diff[:mid_h, mid_w:].mean(),
+            'Bottom-Left': pixel_diff[mid_h:, :mid_w].mean(),
+            'Bottom-Right': pixel_diff[mid_h:, mid_w:].mean()
+        }
+
+        ratio = style_shift / lpips_target if lpips_target != 0 else float("inf")
+
+        return {
+            "protected_img": protected_img,
+            "lpips_orig": lpips_orig,
+            "lpips_target": lpips_target,
+            "style_shift": style_shift,
+            "pixel_diff_mean": pixel_diff.mean(),
+            "quadrants": quadrants,
+            "processing_time": processing_time,
+            "ratio": ratio
+        }
+
+    def evaluate_param_setting(self, content_img, style_img, base_params, param_name, param_value, target_shift):
+        params = base_params.copy()
+        params[param_name] = param_value
+
+        results = self.run_glaze_iteration(
+            content_img=content_img,
+            style_img=style_img,
+            params=params,
+            target_shift=target_shift
+        )
+
+        return results
+
+    def get_output_directory(self):
+        return output_dir
 
     def show_results(self, style_shift, lpips_orig, lpips_target, mean_pixel_diff, quadrants, proc_time, output_path):
         self.results_text.pack(fill=tk.BOTH, expand=True, pady=10)
@@ -931,11 +1355,10 @@ Your artwork is now protected from AI style mimicry!
         self.results_text.insert(1.0, results)
         self.results_text.tag_config("center", justify='center')
 
-        # Download button
         download_btn = tk.Button(
             self.root,
             text="💾 Open Output Folder",
-            command=lambda: os.startfile(output_dir) if os.name == 'nt' else os.system(f'open "{output_dir}"'),
+            command=lambda: os.startfile(output_dir) if os.name == 'nt' else os.system(f'open \"{output_dir}\"'),
             font=("Arial", 11, "bold"),
             bg='#16a34a',
             fg='white',
@@ -947,13 +1370,14 @@ Your artwork is now protected from AI style mimicry!
         )
         download_btn.pack(pady=10)
 
-        messagebox.showinfo(
-            "Success!",
-            f"Protection complete!\n\n"
-            f"Style Shift: {style_shift:.1f}%\n"
-            f"LPIPS: {lpips_orig:.4f}\n\n"
-            f"Saved to: {output_path}"
-        )
+        if not self.is_fine_tuning:
+            messagebox.showinfo(
+                "Success!",
+                f"Protection complete!\n\n"
+                f"Style Shift: {style_shift:.1f}%\n"
+                f"LPIPS: {lpips_orig:.4f}\n\n"
+                f"Saved to: {output_path}"
+            )
 
     def reset_ui(self):
         self.is_processing = False
@@ -961,6 +1385,9 @@ Your artwork is now protected from AI style mimicry!
         self.progress_bar.pack_forget()
         self.progress_label.pack_forget()
         self.progress_var.set(0)
+        self.ft_progress_bar.pack_forget()
+        self.ft_progress_label.pack_forget()
+        self.ft_progress_var.set(0)
 
 
 if __name__ == "__main__":
