@@ -11,6 +11,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from threading import Thread
 import time
+import pywt
 
 home_dir = os.path.expanduser("~")
 desktop_dir = os.path.join(home_dir, "Desktop")
@@ -47,6 +48,26 @@ def lpips_distance(a_pil: Image.Image, b_pil: Image.Image) -> float:
     a = pil_to_lpips_tensor(a_pil)
     b = pil_to_lpips_tensor(b_pil)
     return float(lpips_model(a, b).squeeze().cpu().item())
+
+def compute_dwt_frequency_map(image_pil: Image.Image, wavelet='haar'):
+
+    img_array = np.array(image_pil.convert('L')).astype(float)
+
+    channels = []
+    for c in range(3):
+        coeffs2 = pywt.dwt2(img_array[:, :, c], wavelet)
+        cA, (cH, cV, cD) = coeffs2
+
+        hf = np.sqrt(cH**2 + cV**2 + cD**2)
+
+        hf_resized = np.array(Image.fromarray(hf).resize((img_array.shape[1],img_array.shape[0]), Image.BILINEAR))
+        channels.append(hf_resized)
+        
+    freq_map = np.stack(channels, axis=-1)
+    freq_map = freq_map / (freq_map.max() + 1e-8)
+
+    return freq_map
+
 
 
 def compute_dct_frequency_map(image_pil: Image.Image, block_size=16) -> np.ndarray:
@@ -94,7 +115,13 @@ def pgd_glaze_dct_adaptive(
         target_style_shift_percent: float = 37.0,
         progress_callback=None
 ):
-    energy_map = compute_dct_frequency_map(content_pil, block_size=dct_block_size)
+    content_np = np.array(content_pil.convert("RGB")).astype(np.float32)
+    if self.compression_var.get() == "DCT":
+        energy_map = compute_dct_frequency_map(content_pil, block_size=dct_block_size)
+    elif self.compression_var.get() == "DWT":
+        energy_map = compute_dwt_frequency_map(content_pil, wavelet='haar')
+    else:
+        raise ValueError("Invalid compression type selected.")
     energy_tensor = torch.from_numpy(energy_map).float().unsqueeze(0).unsqueeze(0)
     energy_tensor = 0.5 + (frequency_weight - 0.5) * energy_tensor
 
@@ -212,6 +239,23 @@ class GlazeProtectionUI:
             bd=2
         )
         strength_frame.pack(fill=tk.X, pady=10)
+
+        # Compression Type Option
+        compression_label = ttk.Label(strength_frame,
+                                       text="Compression Type:",
+                                         font=("Arial", 10))
+        compression_label.pack()
+        
+        compression_var = tk.StringVar()
+        compression_var.set("DCT") # Default value
+
+        compression_menu = ttk.Combobox(strength_frame,
+                                        textvariable=compression_var,
+                                        values=["DCT", "DWT"],
+                                        state="readonly",
+                                        font=("Arial", 10))
+        compression_menu.pack()
+
 
         # Target Style Shift Slider
         slider_container = tk.Frame(strength_frame, bg='white')
