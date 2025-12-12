@@ -51,22 +51,25 @@ def lpips_distance(a_pil: Image.Image, b_pil: Image.Image) -> float:
 
 def compute_dwt_frequency_map(image_pil: Image.Image, wavelet='haar'):
 
-    img_array = np.array(image_pil.convert('L')).astype(float)
+    img_array = np.array(image_pil.convert("RGB")).astype(np.float32)
+    h, w = image_pil.size
 
-    channels = []
+    energy = np.zeros((h, w), dtype=np.float32)
+
     for c in range(3):
-        coeffs2 = pywt.dwt2(img_array[:, :, c], wavelet)
-        cA, (cH, cV, cD) = coeffs2
-
+        cA, (cH, cV, cD) = pywt.dwt2(img_array[:, :, c], wavelet)
         hf = np.sqrt(cH**2 + cV**2 + cD**2)
 
-        hf_resized = np.array(Image.fromarray(hf).resize((img_array.shape[1],img_array.shape[0]), Image.BILINEAR))
-        channels.append(hf_resized)
-        
-    freq_map = np.stack(channels, axis=-1)
-    freq_map = freq_map / (freq_map.max() + 1e-8)
+        hf_resized = np.array(Image.fromarray(hf).resize((w, h), Image.BILINEAR), dtype=np.float32)
 
-    return freq_map
+        energy += hf_resized
+        
+    energy /= 3.0
+
+    energy -= energy.min()
+    energy /= (energy.max() + 1e-8)
+
+    return energy
 
 
 
@@ -113,13 +116,16 @@ def pgd_glaze_dct_adaptive(
         frequency_weight=0.80,
         dct_block_size=16,
         target_style_shift_percent: float = 37.0,
-        progress_callback=None
-):
-    content_np = np.array(content_pil.convert("RGB")).astype(np.float32)
-    if self.compression_var.get() == "DCT":
+        progress_callback=None,
+        compression_method = "DCT"
+        ):
+    
+    # content_np = np.array(content_pil.convert("RGB")).astype(np.float32)
+    if compression_method == "DCT":
         energy_map = compute_dct_frequency_map(content_pil, block_size=dct_block_size)
-    elif self.compression_var.get() == "DWT":
-        energy_map = compute_dwt_frequency_map(content_pil, wavelet='haar')
+        
+    elif compression_method == "DWT":
+        energy_map = compute_dwt_frequency_map(content_pil)
     else:
         raise ValueError("Invalid compression type selected.")
     energy_tensor = torch.from_numpy(energy_map).float().unsqueeze(0).unsqueeze(0)
@@ -246,11 +252,11 @@ class GlazeProtectionUI:
                                          font=("Arial", 10))
         compression_label.pack()
         
-        compression_var = tk.StringVar()
-        compression_var.set("DCT") # Default value
+        self.compression_var = tk.StringVar()
+        self.compression_var.set("DCT") # Default value
 
         compression_menu = ttk.Combobox(strength_frame,
-                                        textvariable=compression_var,
+                                        textvariable=self.compression_var,
                                         values=["DCT", "DWT"],
                                         state="readonly",
                                         font=("Arial", 10))
@@ -849,7 +855,8 @@ class GlazeProtectionUI:
                     frequency_weight=params['frequencyWeight'],
                     dct_block_size=params['dctBlockSize'],
                     target_style_shift_percent=target_shift,
-                    progress_callback=self.update_progress
+                    progress_callback=self.update_progress,
+                    compression_method=self.compression_var.get()
                 )
 
                 processing_time = time.time() - start_time
@@ -886,7 +893,7 @@ class GlazeProtectionUI:
                 ))
 
             except Exception as e:
-                self.root.after(0, lambda: messagebox.showerror("Error", f"Protection failed: {str(e)}"))
+                self.root.after(0, lambda e=e: messagebox.showerror("Error", f"Protection failed: {str(e)}"))
             finally:
                 self.root.after(0, self.reset_ui)
 
