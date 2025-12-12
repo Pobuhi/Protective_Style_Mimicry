@@ -73,7 +73,7 @@ def compute_dwt_frequency_map(image_pil: Image.Image, wavelet='haar'):
     img_array = np.array(image_pil.convert("RGB")).astype(np.float32)
     w, h = image_pil.size
 
-    energy = np.zeros((h, w), dtype=np.float32)
+    energy_map = np.zeros((h, w), dtype=np.float32)
 
     for c in range(3):
         cA, (cH, cV, cD) = pywt.dwt2(img_array[:, :, c], wavelet)
@@ -81,14 +81,14 @@ def compute_dwt_frequency_map(image_pil: Image.Image, wavelet='haar'):
 
         hf_resized = np.array(Image.fromarray(hf).resize((w, h), Image.BILINEAR), dtype=np.float32)
 
-        energy += hf_resized
+        energy_map += hf_resized
         
-    energy /= 3.0
+    energy_map /= 3.0
 
-    energy -= energy.min()
-    energy /= (energy.max() + 1e-8)
+    energy_map -= energy_map.min()
+    energy_map /= (energy_map.max() + 1e-8)
 
-    return energy
+    return energy_map
 
 
 
