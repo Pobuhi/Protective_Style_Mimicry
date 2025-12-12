@@ -11,6 +11,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from threading import Thread
 import time
+import pywt
 
 home_dir = os.path.expanduser("~")
 desktop_dir = os.path.join(home_dir, "Desktop")
@@ -64,6 +65,29 @@ def lpips_distance(a_pil: Image.Image, b_pil: Image.Image) -> float:
     b = pil_to_lpips_tensor(b_pil)
     return float(lpips_model(a, b).squeeze().cpu().item())
 
+def compute_dwt_frequency_map(image_pil: Image.Image, wavelet='haar'):
+
+    img_array = np.array(image_pil.convert("RGB")).astype(np.float32)
+    h, w = image_pil.size
+
+    energy = np.zeros((h, w), dtype=np.float32)
+
+    for c in range(3):
+        cA, (cH, cV, cD) = pywt.dwt2(img_array[:, :, c], wavelet)
+        hf = np.sqrt(cH**2 + cV**2 + cD**2)
+
+        hf_resized = np.array(Image.fromarray(hf).resize((w, h), Image.BILINEAR), dtype=np.float32)
+
+        energy += hf_resized
+        
+    energy /= 3.0
+
+    energy -= energy.min()
+    energy /= (energy.max() + 1e-8)
+
+    return energy
+
+
 
 def compute_dct_frequency_map(image_pil: Image.Image, block_size=16) -> np.ndarray:
     img_array = np.array(image_pil.convert('L')).astype(float)
@@ -108,9 +132,18 @@ def pgd_glaze_dct_adaptive(
         frequency_weight=0.80,
         dct_block_size=16,
         target_style_shift_percent: float = 37.0,
-        progress_callback=None
-):
-    energy_map = compute_dct_frequency_map(content_pil, block_size=dct_block_size)
+        progress_callback=None,
+        compression_method = "DCT"
+        ):
+    
+    # content_np = np.array(content_pil.convert("RGB")).astype(np.float32)
+    if compression_method == "DCT":
+        energy_map = compute_dct_frequency_map(content_pil, block_size=dct_block_size)
+        
+    elif compression_method == "DWT":
+        energy_map = compute_dwt_frequency_map(content_pil)
+    else:
+        raise ValueError("Invalid compression type selected.")
     energy_tensor = torch.from_numpy(energy_map).float().unsqueeze(0).unsqueeze(0)
     energy_tensor = 0.5 + (frequency_weight - 0.5) * energy_tensor
 
@@ -228,6 +261,24 @@ class GlazeProtectionUI:
         )
         strength_frame.pack(fill=tk.X, pady=10)
 
+        # Compression Type Option
+        compression_label = ttk.Label(strength_frame,
+                                       text="Compression Type:",
+                                         font=("Arial", 10))
+        compression_label.pack()
+        
+        self.compression_var = tk.StringVar()
+        self.compression_var.set("DCT") # Default value
+
+        compression_menu = ttk.Combobox(strength_frame,
+                                        textvariable=self.compression_var,
+                                        values=["DCT", "DWT"],
+                                        state="readonly",
+                                        font=("Arial", 10))
+        compression_menu.pack()
+
+
+        # Target Style Shift Slider
         slider_container = tk.Frame(strength_frame, bg='white')
         slider_container.pack(fill=tk.X, padx=20, pady=15)
 
@@ -962,7 +1013,8 @@ class GlazeProtectionUI:
                     frequency_weight=params['frequencyWeight'],
                     dct_block_size=params['dctBlockSize'],
                     target_style_shift_percent=target_shift,
-                    progress_callback=self.update_progress
+                    progress_callback=self.update_progress,
+                    compression_method=self.compression_var.get()
                 )
 
                 processing_time = time.time() - start_time
@@ -1002,8 +1054,7 @@ class GlazeProtectionUI:
                 ))
 
             except Exception as e:
-                err = str(e)
-                self.root.after(0, lambda err=err: messagebox.showerror("Error", f"Protection failed: {err}"))
+                self.root.after(0, lambda e=e: messagebox.showerror("Error", f"Protection failed: {str(e)}"))
             finally:
                 self.root.after(0, self.reset_ui)
 

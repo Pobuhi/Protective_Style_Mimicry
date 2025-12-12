@@ -427,11 +427,11 @@ if __name__ == "__main__":
     print(f"LPIPS(original, original): {lpips_distance(original_pil, original_pil):.6f}")
     print(f"LPIPS(original, target_style): {orig_to_target_dist:.6f}")
 
-    steps = 200
-    step_size = 10/255
-    linf_budget_base = 50/255
-    lpips_budget = 0.50
-    style_shift_strength = 20
+    steps = 5
+    step_size = 5/255
+    linf_budget_base = 100/255
+    lpips_budget = 0.05
+    style_shift_strength = 5
     saliency_method = 'combined'
     saliency_min = 0.1
     saliency_max = 0.5

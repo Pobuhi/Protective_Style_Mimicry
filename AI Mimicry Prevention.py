@@ -16,8 +16,8 @@ os.makedirs(content_dir, exist_ok=True)
 os.makedirs(target_dir, exist_ok=True)
 os.makedirs(output_dir, exist_ok=True)
 
-content_path = os.path.join(content_dir, "CatContent.jpg")
-target_style_path = os.path.join(target_dir, "StarryNights.jpg")
+content_path = os.path.join(content_dir, "CatContent.png")
+target_style_path = os.path.join(target_dir, "Sunflowers.png")
 content_name = os.path.splitext(os.path.basename(content_path))[0]
 
 # LPIPS setup using CPU
@@ -152,11 +152,11 @@ if __name__ == "__main__":
     print(f"Baseline: How different the styles are")
 
     # Glaze configuration
-    steps = 200
-    step_size = 8 / 255  # MUCH larger steps
-    linf_budget = 40 / 255  # 4x standard budget
-    lpips_budget = 0.35  # Allow significant changes
-    style_shift_strength = 15.0  # Very aggressive push toward target
+    steps = 350
+    step_size = 12 / 255  # MUCH larger steps
+    linf_budget = 48 / 255  # 4x standard budget
+    lpips_budget = 0.45  # Allow significant changes
+    style_shift_strength = 30.0  # Very aggressive push toward target
 
     print(f"\n Glaze Configuration")
     print(f"Steps: {steps}")
